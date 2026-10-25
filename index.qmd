@@ -1,6 +1,6 @@
 ---
 title: "Pruebas de homocedasticidad"
-subtitle: "Fundamentos, ejemplos e implementación en R"
+subtitle: "Teoria, ejemplos e implementación en R"
 author: 
   - name: Dagoberto Salgado Horta
     affiliation: "Universidad del Tolima"
