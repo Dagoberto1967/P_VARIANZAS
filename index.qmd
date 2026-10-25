@@ -1,0 +1,509 @@
+---
+title: "Pruebas de homocedasticidad"
+subtitle: "Teoria, ejemplos e implementación en R"
+author: 
+  - name: Dagoberto Salgado Horta
+    affiliation: "Universidad del Tolima"
+    affiliation-url: "https://www.ut.edu.co/"
+date: today
+lang: es
+title-block-banner: "#98b6ed"
+
+format:
+  html:
+    page-layout: full
+    fontsize: 14pt
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    number-sections: true
+    code-fold: true
+    code-summary: "Ver código"
+    theme: dark
+    highlight-style: monokai
+    html-math-method: katex
+    smooth-scroll: true
+    link-external-newwindow: true
+    code-overflow: scroll
+    favicon: favicon.ico
+    
+editor: visual
+
+knitr:
+  opts_chunk:
+    message: false
+    warning: false
+    fig.align: center
+    fig.width: 6
+    fig.height: 6
+    out.width: "70%"
+---
+
+
+```{=html}
+<style>
+body{
+  background-color:#f7f6ed;
+  font-size:130%;
+  text-align:justify;
+}
+</style>
+```
+
+# Introducción
+
+La **homocedasticidad** es la propiedad por la cual dos o más poblaciones o grupos tienen la misma varianza, o, en un modelo estadístico, los errores presentan una varianza constante bajo las condiciones del modelo. La **heterocedasticidad** ocurre cuando la varianza cambia entre grupos o depende de los valores ajustados, de una variable explicativa u otra característica.
+
+Evaluar la homocedasticidad ayuda a seleccionar e interpretar procedimientos estadísticos como la prueba *t* para muestras independientes con varianzas agrupadas y el ANOVA clásico. En regresión, la heterocedasticidad puede afectar los errores estándar convencionales y, por tanto, las pruebas de hipótesis y los intervalos de confianza, aunque los coeficientes de mínimos cuadrados ordinarios pueden seguir siendo insesgados bajo las condiciones apropiadas de exogeneidad.
+
+> **Principio clave:** no se debe concluir que las varianzas son iguales solo porque una prueba no sea significativa. Combine gráficos, pruebas formales, diseño del estudio y conocimiento de los datos.
+
+# .Conceptos fundamentales
+
+## .Varianza y homocedasticidad
+
+La varianza poblacional mide la dispersión de una variable respecto de su media:
+
+$$
+\sigma^2 = \operatorname{Var}(X)
+= E[(X-\mu)^2].
+$$
+
+En una comparación de $k$ grupos, el supuesto de homocedasticidad se expresa como:
+
+$$
+H_0:\sigma_1^2=\sigma_2^2=\cdots=\sigma_k^2.
+$$
+
+La alternativa general es que al menos una varianza difiere de las demás.
+
+En regresión, la forma usual del supuesto es:
+
+$$
+\operatorname{Var}(\varepsilon_i\mid X_i)=\sigma^2
+$$
+
+para todas las observaciones $i$, donde $\varepsilon_i$ representa el error aleatorio y $X_i$ las variables explicativas. En la práctica se inspeccionan residuos como aproximación a los errores no observables.
+
+## .Homocedasticidad y normalidad son supuestos diferentes
+
+- **Normalidad:** se refiere a la forma de una distribución, por ejemplo, la de los errores o residuos.
+- **Homocedasticidad:** se refiere a la constancia de la varianza entre grupos o a lo largo de los valores ajustados.
+- **Independencia:** se refiere a la ausencia de dependencia no modelada entre observaciones.
+
+Puede haber datos normales con varianzas distintas, o datos no normales con varianzas similares. Por eso, una prueba de normalidad no sustituye a una prueba de homogeneidad de varianzas.
+
+## ¿Por qué importa?
+
+La homocedasticidad es relevante para ciertos procedimientos clásicos porque ayuda a justificar sus errores estándar y distribuciones de referencia. Por ejemplo:
+
+- La prueba *t* clásica con varianza combinada supone igualdad de varianzas poblacionales.
+- El ANOVA clásico supone varianzas iguales entre grupos, además de otros supuestos.
+- En regresión lineal, la homocedasticidad forma parte de las condiciones habituales para que los errores estándar clásicos sean apropiados.
+
+La heterocedasticidad no siempre invalida el análisis completo. Dependiendo del contexto, se pueden utilizar la prueba *t* de Welch, ANOVA de Welch, errores estándar robustos, modelos que representen la varianza o métodos de remuestreo adecuados.
+
+# .Métodos gráficos
+
+Los gráficos permiten detectar patrones que una prueba formal puede no revelar o cuya importancia práctica puede quedar oculta por el valor *p*.
+
+## .Diagramas de caja por grupo
+
+Comparan la mediana, los cuartiles y la extensión de los datos en cada grupo. Diferencias visibles en la amplitud de las cajas o los bigotes pueden sugerir varianzas distintas.
+
+**Limitaciones:** el diagrama de caja no es una prueba formal de igualdad de varianzas. Su aspecto también depende de la asimetría, los valores extremos y el tamaño muestral.
+
+```{r}
+#| label: fig-boxplot
+#| fig-cap: "Diagramas de caja para dos grupos con distinta dispersión"
+#| fig-width: 8
+#| fig-height: 4.5
+library(ggplot2)
+
+set.seed(123)
+grupo1 <- rnorm(50, mean = 50, sd = 10)
+grupo2 <- rnorm(50, mean = 50, sd = 15)
+
+datos <- data.frame(
+  valor = c(grupo1, grupo2),
+  grupo = factor(rep(c("Grupo 1", "Grupo 2"), each = 50))
+)
+
+ggplot(datos, aes(x = grupo, y = valor, fill = grupo)) +
+  geom_boxplot(alpha = 0.65) +
+  labs(title = "Boxplots por grupo", x = "Grupo", y = "Valor") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## .Comparación de desviaciones estándar
+
+La desviación estándar muestral es una medida de dispersión en las mismas unidades de la variable. Puede resumirse por grupo, pero diferencias descriptivas no equivalen automáticamente a diferencias estadísticamente significativas.
+
+```{r}
+# Resumen descriptivo por grupo
+resumen <- aggregate(valor ~ grupo, data = datos, FUN = mean)
+names(resumen)[2] <- "media"
+
+desviaciones <- aggregate(valor ~ grupo, data = datos, FUN = sd)
+names(desviaciones)[2] <- "desviacion_estandar"
+
+varianzas <- aggregate(valor ~ grupo, data = datos, FUN = var)
+names(varianzas)[2] <- "varianza"
+
+merge(merge(resumen, desviaciones, by = "grupo"), varianzas, by = "grupo")
+```
+
+## .Residuos frente a valores ajustados en regresión
+
+En regresión, se representa el residuo frente al valor ajustado. Una nube sin patrón claro y con dispersión vertical aproximadamente constante es compatible con homocedasticidad. Un patrón de embudo —la dispersión aumenta o disminuye— puede sugerir heterocedasticidad.
+
+```{r}
+#| label: fig-residuos
+#| fig-cap: "Gráfico de residuos frente a valores ajustados"
+set.seed(321)
+x <- seq(1, 10, length.out = 150)
+y <- 5 + 2*x + rnorm(150, sd = 2)
+modelo <- lm(y ~ x)
+
+plot(fitted(modelo), resid(modelo),
+     xlab = "Valores ajustados", ylab = "Residuos",
+     main = "Residuos frente a valores ajustados",
+     pch = 19, col = "grey40")
+abline(h = 0, lty = 2, col = "red")
+```
+
+Este ejemplo simula errores de varianza constante. Para evaluar un modelo real, es preferible revisar también los gráficos diagnósticos estándar:
+
+```{r}
+par(mfrow = c(2, 2))
+plot(modelo)
+par(mfrow = c(1, 1))
+```
+
+El gráfico de residuos frente a ajustados es especialmente útil para detectar patrones de dispersión, pero no prueba por sí solo la homocedasticidad.
+
+# .Pruebas analíticas de igualdad de varianzas entre grupos
+
+Las pruebas formales contrastan hipótesis sobre la igualdad de varianzas. Para comparaciones entre varios grupos, las alternativas más habituales incluyen Bartlett, Levene y Brown-Forsythe. Para dos grupos normales, puede utilizarse la prueba F de varianzas.
+
+## .Prueba F para dos varianzas
+
+La prueba F compara las varianzas de dos poblaciones independientes. Sus hipótesis bilaterales son:
+
+$$
+H_0:\sigma_1^2=\sigma_2^2
+\qquad\text{frente a}\qquad
+H_1:\sigma_1^2\ne\sigma_2^2.
+$$
+
+El estadístico se basa en la razón de las varianzas muestrales:
+
+$$
+F=\frac{S_1^2}{S_2^2}.
+$$
+
+Bajo $H_0$ y el supuesto de normalidad en ambas poblaciones, el estadístico sigue una distribución F con $n_1-1$ y $n_2-1$ grados de libertad, según el orden de las muestras.
+
+En R, `var.test()` realiza esta prueba.
+
+```{r}
+var.test(grupo1, grupo2)
+```
+
+**Ventajas:** es directa y puede ser potente cuando la normalidad se cumple.
+
+**Limitaciones:** es sensible a la falta de normalidad y a valores extremos. No se recomienda como opción general cuando la distribución de los datos es marcadamente no normal.
+
+La función `var.test(valor ~ grupo, data = datos)` también puede utilizarse con una variable numérica y un factor con dos grupos.
+
+## .Prueba de Bartlett
+
+La prueba de Bartlett contrasta la igualdad de varianzas en dos o más grupos. Es eficiente cuando las poblaciones son normales, pero sensible a desviaciones de la normalidad.
+
+Hipótesis:
+
+$$
+H_0:\sigma_1^2=\sigma_2^2=\cdots=\sigma_k^2.
+$$
+
+En R:
+
+```{r}
+bartlett.test(valor ~ grupo, data = datos)
+```
+
+Se recomienda cuando la normalidad de los grupos es razonable. Si hay asimetría importante o valores extremos, conviene considerar Levene o Brown-Forsythe.
+
+## .Prueba de Levene
+
+La prueba de Levene evalúa si las desviaciones absolutas respecto de una medida central son similares entre grupos. En su versión clásica se calculan desviaciones respecto de la media de cada grupo; existen variantes más robustas.
+
+Hipótesis:
+
+- $H_0$: todas las varianzas poblacionales son iguales.
+- $H_1$: al menos una varianza poblacional es diferente.
+
+En R, `leveneTest()` del paquete `car` permite realizarla. Por defecto, utiliza desviaciones absolutas respecto de la mediana, opción que suele conocerse como variante de Brown-Forsythe; el centro puede cambiarse a la media.
+
+```{r}
+# install.packages("car") # Ejecutar una sola vez si hace falta
+library(car)
+
+leveneTest(valor ~ grupo, data = datos)  # Centro en la mediana
+leveneTest(valor ~ grupo, data = datos, center = mean)  # Centro en la media
+```
+
+**Ventajas:**
+
+- Puede utilizarse con dos o más grupos.
+- La versión centrada en la mediana es más robusta frente a la falta de normalidad que Bartlett y la prueba F clásica en muchas situaciones.
+
+**Limitaciones:** no está libre de supuestos; el resultado depende de la distribución, el diseño y la independencia de las observaciones.
+
+## .Brown-Forsythe
+
+Brown-Forsythe es una variante de la prueba de Levene que utiliza la mediana de cada grupo para calcular las desviaciones absolutas. En R se obtiene con `leveneTest()` usando `center = median`, que es el valor predeterminado.
+
+```{r}
+leveneTest(valor ~ grupo, data = datos, center = median)
+```
+
+En muchos análisis aplicados se informa como prueba de Levene centrada en la mediana o como versión de Brown-Forsythe. Conviene especificar qué variante se utilizó.
+
+# .Ejemplo: comparar las varianzas de dos grupos
+
+El siguiente ejemplo usa los dos grupos simulados anteriormente. Sus desviaciones estándar poblacionales teóricas son 10 y 15, de modo que se espera una dispersión mayor en el Grupo 2. El resultado de cualquier muestra concreta varía por azar.
+
+```{r}
+# Estadísticos descriptivos
+tapply(datos$valor, datos$grupo, mean)
+tapply(datos$valor, datos$grupo, sd)
+tapply(datos$valor, datos$grupo, var)
+
+# Verificar normalidad de cada grupo como diagnóstico complementario
+shapiro.test(datos$valor[datos$grupo == "Grupo 1"])
+shapiro.test(datos$valor[datos$grupo == "Grupo 2"])
+
+# Prueba F: apropiada si el supuesto de normalidad es razonable
+var.test(valor ~ grupo, data = datos)
+
+# Pruebas para comparar varianzas
+bartlett.test(valor ~ grupo, data = datos)
+leveneTest(valor ~ grupo, data = datos)
+```
+
+## .Interpretación del valor p
+
+Para las pruebas de igualdad de varianzas, con un nivel de significación $\alpha=0.05$:
+
+- Si $p\leq0.05$, se rechaza la hipótesis nula de igualdad de varianzas.
+- Si $p>0.05$, no se rechaza la hipótesis nula; la prueba no encontró evidencia suficiente de diferencias.
+
+No rechazar la hipótesis nula **no demuestra que las varianzas sean idénticas**. El resultado puede deberse a una diferencia pequeña, a variabilidad muestral o a potencia estadística insuficiente.
+
+La prueba de normalidad y la de igualdad de varianzas responden preguntas distintas. No es necesario que una prueba de normalidad produzca $p>0.05$ para ejecutar Levene; precisamente, Levene suele elegirse cuando la normalidad es dudosa.
+
+# .Homocedasticidad en regresión lineal
+
+En regresión, se suele asumir que la varianza condicional del error es constante. Una formulación habitual es:
+
+$$
+\operatorname{Var}(\varepsilon_i\mid X_i)=\sigma^2.
+$$
+
+Si la varianza cambia con los valores de las variables explicativas, se habla de heterocedasticidad. Los coeficientes OLS no necesariamente dejan de ser insesgados por ello, pero los errores estándar convencionales pueden resultar incorrectos y las pruebas de hipótesis e intervalos de confianza pueden perder validez.
+
+## .Prueba de Breusch-Pagan
+
+La prueba de Breusch-Pagan examina si la varianza de los errores se relaciona sistemáticamente con variables explicativas. Una versión común está implementada en `bptest()` del paquete `lmtest`.
+
+Hipótesis generales:
+
+- $H_0$: varianza constante.
+- $H_1$: la varianza depende de una o más variables explicativas.
+
+```{r}
+# install.packages("lmtest") # Ejecutar una sola vez si hace falta
+library(lmtest)
+
+set.seed(100)
+n <- 200
+x <- runif(n, 1, 10)
+
+# Ejemplo con varianza constante
+y_constante <- 3 + 1.5*x + rnorm(n, sd = 2)
+modelo_constante <- lm(y_constante ~ x)
+
+# Ejemplo heterocedástico: la desviación del error aumenta con x
+y_hetero <- 3 + 1.5*x + rnorm(n, sd = 0.4*x)
+modelo_hetero <- lm(y_hetero ~ x)
+
+bptest(modelo_constante)
+bptest(modelo_hetero)
+```
+
+Un valor *p* pequeño aporta evidencia contra la hipótesis de varianza constante. Un valor *p* grande no demuestra homocedasticidad; se interpreta junto con los gráficos y el diseño.
+
+## .Prueba de White
+
+La prueba de White es una alternativa general para detectar heterocedasticidad que permite que la varianza se relacione con términos no lineales y productos de variables explicativas. Una implementación práctica puede usar `bptest()` con una fórmula ampliada; debe evitarse una especificación excesiva cuando el tamaño muestral es pequeño.
+
+```{r}
+# Ejemplo de prueba tipo White para una regresión con un predictor:
+# se incluyen el predictor y su cuadrado en la ecuación auxiliar.
+bptest(modelo_hetero, ~ x + I(x^2), data = data.frame(x = x))
+```
+
+Esta implementación corresponde a una versión basada en una ecuación auxiliar ampliada; los detalles exactos de la prueba dependen de la especificación utilizada.
+
+# .Qué hacer cuando se detecta heterocedasticidad
+
+La solución depende de la pregunta científica y del modelo. Algunas opciones son:
+
+1. **Prueba t de Welch:** para comparar las medias de dos grupos independientes sin suponer varianzas iguales.
+2. **ANOVA de Welch:** para comparar medias de varios grupos con varianzas posiblemente diferentes.
+3. **Errores estándar robustos:** en regresión, permiten una inferencia más robusta frente a heterocedasticidad bajo condiciones apropiadas.
+4. **Modelar la varianza:** si hay una estructura conocida o interpretable para la dispersión.
+5. **Transformaciones:** pueden ayudar en ciertos contextos, pero deben justificarse sustantivamente y no aplicarse de forma automática.
+6. **Métodos robustos o de remuestreo:** cuando resulten apropiados para el diseño y el estimando.
+
+## .Welch para dos grupos
+
+```{r}
+t.test(valor ~ grupo, data = datos, var.equal = FALSE)
+```
+
+En R, `var.equal = FALSE` es el valor predeterminado de `t.test()`. La prueba de Welch suele ser una opción razonable para comparar medias de grupos independientes cuando no se puede justificar la igualdad de varianzas.
+
+## .ANOVA de Welch para varios grupos
+
+```{r}
+# Ejemplo ilustrativo con tres grupos
+set.seed(456)
+datos3 <- data.frame(
+  grupo = factor(rep(c("A", "B", "C"), each = 40)),
+  valor = c(rnorm(40, 50, 7),
+            rnorm(40, 55, 12),
+            rnorm(40, 60, 18))
+)
+
+oneway.test(valor ~ grupo, data = datos3, var.equal = FALSE)
+```
+
+La prueba de Welch compara medias sin requerir igualdad de varianzas. No elimina la necesidad de revisar independencia, forma de las distribuciones y valores extremos.
+
+# .Errores frecuentes
+
+- Confundir homocedasticidad con normalidad.
+- Concluir que las varianzas son iguales solo porque $p>0.05$.
+- Aplicar la prueba F clásica sin considerar su sensibilidad a la falta de normalidad.
+- Usar Bartlett cuando existen desviaciones importantes de la normalidad sin discutir esa limitación.
+- Pensar que Levene demuestra por sí sola la igualdad de varianzas.
+- En regresión, evaluar únicamente la distribución de la variable respuesta y no los residuos frente a los valores ajustados.
+- Eliminar valores extremos solo para obtener una prueba no significativa.
+- Creer que la heterocedasticidad siempre sesga los coeficientes de regresión; su efecto depende de las condiciones del modelo, y con frecuencia afecta principalmente la eficiencia y la inferencia convencional.
+
+# .Guía de decisión
+
+| Situación | Método orientativo | Consideración principal |
+|---|---|---|
+| Dos grupos, normalidad razonable | Prueba F (`var.test`) | Sensible a desviaciones de normalidad |
+| Dos o más grupos, normalidad razonable | Bartlett | Potente bajo normalidad |
+| Dos o más grupos, normalidad dudosa | Levene/Brown-Forsythe | Más robusta en muchas situaciones |
+| Regresión lineal | Residuos vs. ajustados; Breusch-Pagan | Evaluar la varianza condicional |
+| Comparar medias de dos grupos con varianzas distintas | Prueba t de Welch | No requiere igualdad de varianzas |
+| Comparar medias de varios grupos con varianzas distintas | ANOVA de Welch | Alternativa al ANOVA clásico |
+
+Esta tabla es una guía, no un sustituto de la evaluación del diseño, independencia, distribución y objetivo inferencial.
+
+# .Redacción de resultados
+
+**Ejemplo de redacción cuando no se rechaza la igualdad de varianzas:**
+
+“Se evaluó la homogeneidad de varianzas mediante la prueba de Levene centrada en la mediana. El resultado no fue estadísticamente significativo ($p>0.05$); por tanto, no se encontró evidencia suficiente para rechazar la hipótesis de igualdad de varianzas. Esta conclusión se interpretó junto con los diagramas de caja y las características de los grupos”.
+
+**Ejemplo de redacción cuando se rechaza la igualdad de varianzas:**
+
+“La prueba de Levene centrada en la mediana fue estadísticamente significativa ($p<0.05$), lo que aportó evidencia de diferencias entre las varianzas de los grupos. En consecuencia, para la comparación de medias se consideró una prueba que no exige igualdad de varianzas, como la prueba t de Welch o el ANOVA de Welch, según el número de grupos”.
+
+Reemplace las expresiones $p>0.05$ o $p<0.05$ por el valor *p* real y reporte el estadístico, los grados de libertad cuando corresponda, el tamaño muestral y el método exacto empleado.
+
+# .Referencias y documentación
+
+- R Core Team. *R: A Language and Environment for Statistical Computing*. <https://www.R-project.org/>
+- Documentación de `var.test()` en R: <https://stat.ethz.ch/R-manual/R-devel/library/stats/html/var.test.html>
+- Documentación de `bartlett.test()` en R: <https://stat.ethz.ch/R-manual/R-devel/library/stats/html/bartlett.test.html>
+- Documentación del paquete `car` y de `leveneTest()`: <https://CRAN.R-project.org/package=car>
+- Documentación del paquete `lmtest` y de `bptest()`: <https://CRAN.R-project.org/package=lmtest>
+- Documentación de `t.test()` y `oneway.test()` en R: <https://stat.ethz.ch/R-manual/R-devel/library/stats/html/t.test.html> y <https://stat.ethz.ch/R-manual/R-devel/library/stats/html/oneway.test.html>
+
+---
+
+# Apéndice: script independiente para R
+
+El siguiente script reúne los análisis principales. Instale los paquetes una sola vez si es necesario.
+
+```r
+# ============================================================
+# HOMOCEDASTICIDAD: GRÁFICOS Y PRUEBAS ANALÍTICAS
+# ============================================================
+
+# install.packages(c("ggplot2", "car", "lmtest"))
+library(ggplot2)
+library(car)
+library(lmtest)
+
+set.seed(123)
+
+# 1. Simular dos grupos con distinta desviación estándar
+grupo1 <- rnorm(50, mean = 50, sd = 10)
+grupo2 <- rnorm(50, mean = 50, sd = 15)
+
+datos <- data.frame(
+  valor = c(grupo1, grupo2),
+  grupo = factor(rep(c("Grupo 1", "Grupo 2"), each = 50))
+)
+
+# 2. Inspección gráfica
+ggplot(datos, aes(x = grupo, y = valor, fill = grupo)) +
+  geom_boxplot(alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Boxplot de los grupos", x = "Grupo", y = "Valor") +
+  theme(legend.position = "none")
+
+# 3. Estadísticos descriptivos
+tapply(datos$valor, datos$grupo, mean)
+tapply(datos$valor, datos$grupo, sd)
+tapply(datos$valor, datos$grupo, var)
+
+# 4. Prueba F para dos grupos normales
+var.test(valor ~ grupo, data = datos)
+
+# 5. Pruebas para varios grupos
+bartlett.test(valor ~ grupo, data = datos)
+leveneTest(valor ~ grupo, data = datos)  # Centrada en la mediana
+leveneTest(valor ~ grupo, data = datos, center = mean)
+
+# 6. Comparación de medias si no se supone igualdad de varianzas
+t.test(valor ~ grupo, data = datos, var.equal = FALSE)
+
+# 7. Ejemplo de regresión y prueba de Breusch-Pagan
+set.seed(321)
+x <- runif(200, 1, 10)
+y <- 3 + 1.5*x + rnorm(200, sd = 0.4*x)
+modelo <- lm(y ~ x)
+
+plot(fitted(modelo), resid(modelo),
+     xlab = "Valores ajustados", ylab = "Residuos",
+     main = "Residuos frente a valores ajustados",
+     pch = 19)
+abline(h = 0, lty = 2, col = "red")
+
+bptest(modelo)
+
+# Interpretación orientativa, alfa = 0.05:
+# p <= 0.05: rechazar H0 de igualdad/constancia de varianzas.
+# p > 0.05: no rechazar H0; no demuestra igualdad de varianzas.
+# Interpretar junto con los gráficos, el diseño y el contexto.
+```
